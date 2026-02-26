@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Callable, Awaitable
 
 class LLMBase(ABC):
     """
@@ -7,15 +7,16 @@ class LLMBase(ABC):
     """
     
     @abstractmethod
-    def extract_issue(self, log_text: str) -> str:
+    async def extract_issue(self, log_text: str, on_status: Optional[Callable[[str], Awaitable[None]]] = None) -> str:
         """
         Extract the main issue from the log file in one sentence.
         """
         pass
 
     @abstractmethod
-    def generate_troubleshooting_steps(self, issue: str, kb_context_text: str) -> str:
+    async def generate_troubleshooting_steps(self, issue: str, kb_context_text: str, on_status: Optional[Callable[[str], Awaitable[None]]] = None) -> str:
         """
         Generate troubleshooting steps based on the issue and retrieved KB context text.
         """
         pass
+

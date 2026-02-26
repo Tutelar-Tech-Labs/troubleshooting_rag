@@ -4,7 +4,7 @@ from app.services.scenario_detector import detect_scenario
 from app.services.domain_detector import detect_domain
 from app.services.panorama_scenarios import detect_panorama_scenario
 from app.utils.log_processor import extract_key_lines
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable, Awaitable
 
 
 class RAGService:
@@ -12,22 +12,24 @@ class RAGService:
         self.llm = LocalLLMService()
         self.faiss = FAISSService()
 
-    async def analyze_log(self, log_text: str) -> Dict[str, Any]:
+    async def analyze_log(self, log_text: str, on_status: Optional[Callable[[str], Awaitable[None]]] = None) -> Dict[str, Any]:
         """
         Full RAG flow: preprocess -> extract issue -> scenario/domain check -> FAISS search -> solution generation.
         """
         # 1. Preprocess log: Extract key lines
+        if on_status: await on_status("Log preprocessing and noise reduction...")
         filtered_log = extract_key_lines(log_text)
 
         # 2. Extract issue (LLM): strictly one sentence
-        detected_issue = self.llm.extract_issue(filtered_log)
+        if on_status: await on_status("Neural issue extraction...")
+        detected_issue = await self.llm.extract_issue(filtered_log, on_status=on_status)
 
         # 3. Domain detection based on full raw log text
         domain = detect_domain(log_text)
 
-        return await self.analyze_issue(detected_issue, filtered_log, domain=domain)
+        return await self.analyze_issue(detected_issue, filtered_log, domain=domain, on_status=on_status)
 
-    async def analyze_issue(self, detected_issue: str, filtered_log: str = "", domain: Optional[str] = None) -> Dict[str, Any]:
+    async def analyze_issue(self, detected_issue: str, filtered_log: str = "", domain: Optional[str] = None, on_status: Optional[Callable[[str], Awaitable[None]]] = None) -> Dict[str, Any]:
         """
         RAG flow starting from a detected or provided issue.
         """
@@ -36,9 +38,11 @@ class RAGService:
 
         # 1. Domain Detection Layer
         if domain is None:
+            if on_status: await on_status("Detecting operation domain...")
             domain = detect_domain(scenario_context)
 
         # 2. Scenario Intelligence
+        if on_status: await on_status("Scenario intelligence and pattern mapping...")
         panorama_scenario = None
         scenario = None
 
@@ -74,6 +78,7 @@ class RAGService:
         print("=" * 50)
 
         # 3. Domain-aware FAISS Search
+        if on_status: await on_status("KB vector retrieval and ranking...")
         print(f"--- DEBUG: FAISS SEARCH ---")
         print(f"FAISS Query Text: {faiss_query}")
         top_chunks = self.faiss.search(faiss_query, domain=domain, top_k=5)
@@ -116,6 +121,7 @@ class RAGService:
         print("="*50 + "\n")
         
         # 4. Final Solution Generation: Panorama override or LLM flow
+        if on_status: await on_status("Neural remediation synthesis...")
         if panorama_scenario:
             root_cause = panorama_scenario["root_cause"]
             user_impact = panorama_scenario["user_impact"]
@@ -124,7 +130,7 @@ class RAGService:
             detected_issue = panorama_scenario["detected_issue"]
         else:
             # Continue normal LLM RAG flow
-            solution = self.llm.generate_troubleshooting_steps(detected_issue, kb_context_text)
+            solution = await self.llm.generate_troubleshooting_steps(detected_issue, kb_context_text, on_status=on_status)
 
             if not solution or "Root Cause" not in solution:
                 solution = (
