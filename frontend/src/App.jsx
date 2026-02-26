@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Upload, FileText, CheckCircle, ExternalLink, AlertTriangle, Loader2, BookOpen, Info, Sun, Moon, Shield, Terminal, Zap } from 'lucide-react';
 
@@ -10,17 +10,12 @@ function App() {
   const [directIssue, setDirectIssue] = useState('');
   const [activeTab, setActiveTab] = useState('upload');
   const [loading, setLoading] = useState(false);
+  const [currentStatus, setCurrentStatus] = useState('');
+  const [countdown, setCountdown] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [isDarkMode, setIsDarkMode] = useState(true);
-  const [loadingPhaseIndex, setLoadingPhaseIndex] = useState(0);
-
-  const loadingPhases = [
-    'Log preprocessing and noise reduction',
-    'Scenario intelligence and pattern mapping',
-    'KB vector retrieval and ranking',
-    'Neural remediation synthesis'
-  ];
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -31,23 +26,14 @@ function App() {
   }, [isDarkMode]);
 
   useEffect(() => {
-    if (!loading) {
-      setLoadingPhaseIndex(0);
-      return;
+    let timer;
+    if (loading && countdown > 0) {
+      timer = setInterval(() => {
+        setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
     }
-
-    setLoadingPhaseIndex(0);
-
-    const timeouts = [
-      setTimeout(() => setLoadingPhaseIndex(1), 700),
-      setTimeout(() => setLoadingPhaseIndex(2), 1500),
-      setTimeout(() => setLoadingPhaseIndex(3), 2600)
-    ];
-
-    return () => {
-      timeouts.forEach(clearTimeout);
-    };
-  }, [loading]);
+    return () => clearInterval(timer);
+  }, [loading, countdown]);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -57,6 +43,7 @@ function App() {
       setDirectIssue('');
       setResult(null);
       setError(null);
+      setCurrentStatus('');
     }
   };
 
@@ -74,6 +61,7 @@ function App() {
             setDirectIssue('');
             setResult(null);
             setError(null);
+            setCurrentStatus('');
             foundFile = true;
             break;
           }
@@ -88,6 +76,7 @@ function App() {
           setDirectIssue('');
           setResult(null);
           setError(null);
+          setCurrentStatus('');
         }
       }
     }
@@ -97,13 +86,22 @@ function App() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setCurrentStatus('Initiating forensic stream...');
+    setCountdown(120); // Initial 120s countdown
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
-      let response;
+      let endpoint = '';
+      let body = null;
+      let headers = {};
+
       if (activeTab === 'upload') {
         if (!file && !pastedText) {
           throw new Error('Please upload a file or paste log content');
         }
+        endpoint = `${API_URL}/analyze`;
         const formData = new FormData();
         if (file) {
           formData.append('file', file);
@@ -112,25 +110,83 @@ function App() {
           const virtualFile = new File([blob], 'pasted_log.txt', { type: 'text/plain' });
           formData.append('file', virtualFile);
         }
-        response = await axios.post(`${API_URL}/analyze`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        body = formData;
       } else {
         if (!directIssue.trim()) {
           throw new Error('Please enter an error or issue description');
         }
-        response = await axios.post(`${API_URL}/analyze-issue`, {
-          issue: directIssue
-        });
+        endpoint = `${API_URL}/analyze-issue`;
+        body = { issue: directIssue };
+        headers = { 'Content-Type': 'application/json' };
       }
-      setResult(response.data);
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        body: activeTab === 'upload' ? body : JSON.stringify(body),
+        headers: headers,
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Analysis failed');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.substring(6));
+              if (data.status) {
+                setCurrentStatus(data.status);
+                // Reset countdown for each new status update
+                if (data.status.includes('Neural') || data.status.includes('Using')) {
+                  setCountdown(60); 
+                } else {
+                  setCountdown(30);
+                }
+              } else if (data.result) {
+                setResult(data.result);
+                setLoading(false);
+                setCountdown(0);
+              } else if (data.error) {
+                throw new Error(data.error);
+              }
+            } catch (e) {
+              console.error("Error parsing SSE data", e);
+            }
+          }
+        }
+      }
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Analysis failed');
+      if (err.name === 'AbortError') {
+        setCurrentStatus('Analysis stopped by user.');
+      } else {
+        setError(err.message || 'Analysis failed');
+      }
       console.error(err);
-    } finally {
       setLoading(false);
+      setCountdown(0);
+    } finally {
+      abortControllerRef.current = null;
     }
   };
+
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#020617] p-6 md:p-12 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300">
@@ -305,14 +361,44 @@ function App() {
               </div>
             )}
 
+            {/* Loading Status */}
             {loading && (
-              <div className="bg-white dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800 p-32 text-center relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500/5 to-transparent animate-shimmer" />
-                <Loader2 className="animate-spin text-blue-500 w-16 h-16 mx-auto mb-8" />
-                <h3 className="text-slate-800 dark:text-white font-black text-3xl mb-4">Analysis pipeline in progress</h3>
-                <p className="text-slate-500 dark:text-slate-400 font-mono uppercase tracking-widest text-sm animate-pulse">
-                  {loadingPhases[loadingPhaseIndex]}
-                </p>
+              <div className="mt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <div className="flex flex-col items-center justify-center p-8 bg-blue-50/50 dark:bg-blue-500/5 rounded-3xl border border-blue-100 dark:border-blue-500/20 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-slate-100 dark:bg-slate-800">
+                    <div className="h-full bg-blue-500 animate-progress-fast" />
+                  </div>
+                  
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-blue-400 blur-2xl opacity-20 animate-pulse" />
+                    <Loader2 className="w-12 h-12 text-blue-600 dark:text-blue-400 animate-spin relative z-10" />
+                  </div>
+                  
+                  <div className="mt-6 text-center space-y-2">
+                        <p className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+                          {currentStatus || 'Processing Analysis...'}
+                        </p>
+                        {countdown > 0 && (
+                          <p className="text-sm text-slate-500 dark:text-slate-400 font-mono">
+                            Estimated time: {countdown}s
+                          </p>
+                        )}
+                        <div className="flex flex-col items-center gap-4">
+                          <div className="flex items-center justify-center gap-2">
+                            <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.3s]" />
+                            <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.15s]" />
+                            <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-bounce" />
+                          </div>
+                          <button
+                            onClick={handleStop}
+                            className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-full text-xs font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 flex items-center gap-2"
+                          >
+                            <Zap className="w-3 h-3 fill-current" />
+                            STOP ANALYSIS
+                          </button>
+                        </div>
+                      </div>
+                </div>
               </div>
             )}
 
