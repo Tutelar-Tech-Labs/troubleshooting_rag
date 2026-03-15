@@ -1,19 +1,34 @@
 # AI-Based Palo Alto GlobalProtect Log Analyzer
 
-A production-style RAG (Retrieval-Augmented Generation) system for MSP network engineers to troubleshoot GlobalProtect issues.
+A production-grade RAG (Retrieval-Augmented Generation) system for SOC and MSP network engineers to troubleshoot GlobalProtect issues with full visibility.
 
 ## Features
-- **Log Analysis**: Automatically extracts the core issue from uploaded GlobalProtect logs.
+- **Live SOC Visibility**: Real-time SSE (Server-Sent Events) streaming of the backend intel pipeline.
+- **Log Analysis**: Automatically extracts the core issue from uploaded GlobalProtect logs with strict dynamic chunking.
 - **Semantic Search**: Uses FAISS and sentence-transformers to find relevant Palo Alto KB articles.
-- **AI Troubleshooting**: Generates concise steps using a local LLM (Flan-T5).
-- **Modular Design**: Easy to swap local LLM with OpenAI, Gemini, etc.
+- **AI Troubleshooting**: Generates concise steps using local Ollama LLMs (`mistral` primary, `phi3` fail-safe fallback).
+- **Graceful Control**: Includes abort controllers to manually stop and reset analysis seamlessly.
 
 ## Tech Stack
 - **Frontend**: React.js, Tailwind CSS, Axios, Lucide-React
-- **Backend**: FastAPI, FAISS, Sentence-Transformers, Hugging Face Transformers
+- **Backend**: FastAPI, FAISS, Sentence-Transformers
+- **LLM Engine**: Ollama (Mistral, Phi3)
 - **Database**: FAISS (Local Vector Storage)
 
 ## Setup Instructions
+
+### Prerequisites
+1. Install [Ollama](https://ollama.com/).
+2. Pull the required models in your terminal:
+   ```bash
+   ollama pull mistral
+   ollama pull phi3
+   ```
+3. Clone the repository:
+   ```bash
+   git clone https://github.com/Tutelar-Tech-Labs/troubleshooting_rag.git
+   cd troubleshooting_rag
+   ```
 
 ### Backend
 1. Navigate to the `backend` folder:
@@ -23,7 +38,8 @@ A production-style RAG (Retrieval-Augmented Generation) system for MSP network e
 2. Create a virtual environment and install dependencies:
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   # On Windows: venv\Scripts\activate
+   # On MacOS/Linux: source venv/bin/activate  
    pip install -r requirements.txt
    ```
 3. Run the offline indexing script to prepare the FAISS database:
