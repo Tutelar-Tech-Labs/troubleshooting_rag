@@ -1,6 +1,6 @@
 import re
 
-def extract_key_lines(log_text: str, max_lines: int = 100, max_chars: int = 10000) -> str:
+def extract_key_lines(log_text: str, max_lines: int = 1000000, max_chars: int = 10000000) -> str:
     """
     Improved log processing pipeline:
     1. Remove timestamp + process prefix
@@ -24,6 +24,7 @@ def extract_key_lines(log_text: str, max_lines: int = 100, max_chars: int = 1000
 
     for line in lines: 
         # Remove timestamp + prefix 
+        #Updated commit 
         clean_line = prefix_pattern.sub('', line) 
 
         if keyword_pattern.search(clean_line): 

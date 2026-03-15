@@ -10,7 +10,7 @@ function App() {
   const [directIssue, setDirectIssue] = useState('');
   const [activeTab, setActiveTab] = useState('upload');
   const [loading, setLoading] = useState(false);
-  const [currentStatus, setCurrentStatus] = useState('');
+  const [currentStatus, setCurrentStatus] = useState({ stage: '', progress: '', messages: [] });
   const [countdown, setCountdown] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -43,7 +43,7 @@ function App() {
       setDirectIssue('');
       setResult(null);
       setError(null);
-      setCurrentStatus('');
+      setCurrentStatus({ stage: '', progress: '', messages: [] });
     }
   };
 
@@ -61,7 +61,7 @@ function App() {
             setDirectIssue('');
             setResult(null);
             setError(null);
-            setCurrentStatus('');
+            setCurrentStatus({ stage: '', progress: '', messages: [] });
             foundFile = true;
             break;
           }
@@ -76,7 +76,7 @@ function App() {
           setDirectIssue('');
           setResult(null);
           setError(null);
-          setCurrentStatus('');
+          setCurrentStatus({ stage: '', progress: '', messages: [] });
         }
       }
     }
@@ -86,7 +86,7 @@ function App() {
     setLoading(true);
     setError(null);
     setResult(null);
-    setCurrentStatus('Initiating forensic stream...');
+    setCurrentStatus({ stage: 'Initiating forensic stream...', progress: '', messages: ['Initiating forensic stream...'], total_chunks: 0, current_chunk: 0 });
     setCountdown(120); // Initial 120s countdown
 
     const controller = new AbortController();
@@ -147,11 +147,30 @@ function App() {
             try {
               const data = JSON.parse(line.substring(6));
               if (data.status) {
-                setCurrentStatus(data.status);
-                // Reset countdown for each new status update
-                if (data.status.includes('Neural') || data.status.includes('Using')) {
-                  setCountdown(60); 
-                } else {
+                try {
+                  const statusObj = JSON.parse(data.status);
+                  // Update using previous state to ensure messages array appends correctly if needed,
+                  // or just rely on backend sending the full array
+                  setCurrentStatus(prev => ({
+                    stage: statusObj.stage || prev.stage,
+                    progress: statusObj.progress || prev.progress,
+                    messages: statusObj.messages || prev.messages,
+                    total_chunks: statusObj.total_chunks || prev.total_chunks,
+                    current_chunk: statusObj.current_chunk || prev.current_chunk
+                  }));
+
+                  if (statusObj.stage?.includes('Neural') || statusObj.stage?.includes('solution')) {
+                    setCountdown(60);
+                  } else {
+                    setCountdown(30);
+                  }
+                } catch (e) {
+                  // Fallback for plain text
+                  setCurrentStatus(prev => ({
+                    ...prev,
+                    stage: data.status,
+                    messages: [...prev.messages, data.status]
+                  }));
                   setCountdown(30);
                 }
               } else if (data.result) {
@@ -169,7 +188,7 @@ function App() {
       }
     } catch (err) {
       if (err.name === 'AbortError') {
-        setCurrentStatus('Analysis stopped by user.');
+        setCurrentStatus(prev => ({ ...prev, stage: 'Analysis stopped by user.' }));
       } else {
         setError(err.message || 'Analysis failed');
       }
@@ -207,7 +226,7 @@ function App() {
             <Shield className="w-10 h-10 text-blue-600 dark:text-blue-400" />
           </div>
           <h1 className="text-5xl font-black tracking-tight text-slate-900 dark:text-white mb-4">
-            PAN-OS <span className="text-blue-600 dark:text-blue-400">CyberOps</span> Analyzer
+            GlobalProtect <span className="text-blue-600 dark:text-blue-400">Log</span> Analyzer
           </h1>
           <p className="text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto font-medium">
             Advanced RAG-powered intelligence for automated GlobalProtect log forensic analysis and remediation.
@@ -229,43 +248,40 @@ function App() {
               <div className="flex bg-slate-100 dark:bg-slate-800/50 p-1 rounded-xl mb-6">
                 <button
                   onClick={() => setActiveTab('upload')}
-                  className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${
-                    activeTab === 'upload'
-                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                  }`}
+                  className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'upload'
+                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                    }`}
                 >
                   <Upload size={16} />
                   Log Data
                 </button>
                 <button
                   onClick={() => setActiveTab('direct')}
-                  className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${
-                    activeTab === 'direct'
-                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                  }`}
+                  className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'direct'
+                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                    }`}
                 >
                   <Zap size={16} />
                   Direct Issue
                 </button>
               </div>
-              
+
               {activeTab === 'upload' ? (
-                <div 
-                  className={`relative border-2 border-dashed rounded-2xl p-10 transition-all cursor-pointer group flex flex-col items-center justify-center text-center ${
-                    file || pastedText 
-                      ? 'border-blue-400 dark:border-blue-500/50 bg-blue-50/50 dark:bg-blue-500/5' 
-                      : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 hover:bg-slate-100 dark:hover:bg-slate-900/50'
-                  }`}
+                <div
+                  className={`relative border-2 border-dashed rounded-2xl p-10 transition-all cursor-pointer group flex flex-col items-center justify-center text-center ${file || pastedText
+                    ? 'border-blue-400 dark:border-blue-500/50 bg-blue-50/50 dark:bg-blue-500/5'
+                    : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 hover:bg-slate-100 dark:hover:bg-slate-900/50'
+                    }`}
                 >
-                  <input 
-                    type="file" 
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                  <input
+                    type="file"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     onChange={handleFileChange}
                     accept=".log,.txt"
                   />
-                  
+
                   {file ? (
                     <>
                       <div className="bg-blue-600 dark:bg-blue-500 p-3 rounded-xl mb-4 shadow-lg shadow-blue-500/20">
@@ -309,11 +325,10 @@ function App() {
               <button
                 onClick={handleUpload}
                 disabled={(activeTab === 'upload' ? (!file && !pastedText) : !directIssue.trim()) || loading}
-                className={`mt-8 w-full py-4 px-6 rounded-2xl font-black text-lg tracking-wider uppercase flex items-center justify-center gap-3 transition-all duration-300 ${
-                  (activeTab === 'upload' ? (!file && !pastedText) : !directIssue.trim()) || loading 
-                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed' 
-                    : 'bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 dark:hover:bg-blue-600 text-white shadow-xl shadow-blue-500/30 hover:shadow-blue-500/40 hover:-translate-y-1'
-                }`}
+                className={`mt-8 w-full py-4 px-6 rounded-2xl font-black text-lg tracking-wider uppercase flex items-center justify-center gap-3 transition-all duration-300 ${(activeTab === 'upload' ? (!file && !pastedText) : !directIssue.trim()) || loading
+                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'
+                  : 'bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 dark:hover:bg-blue-600 text-white shadow-xl shadow-blue-500/30 hover:shadow-blue-500/40 hover:-translate-y-1'
+                  }`}
               >
                 {loading ? <Loader2 className="animate-spin" /> : <Shield size={22} />}
                 {loading ? 'Analyzing...' : 'Execute Analysis'}
@@ -368,36 +383,63 @@ function App() {
                   <div className="absolute top-0 left-0 w-full h-1 bg-slate-100 dark:bg-slate-800">
                     <div className="h-full bg-blue-500 animate-progress-fast" />
                   </div>
-                  
+
                   <div className="relative">
                     <div className="absolute inset-0 bg-blue-400 blur-2xl opacity-20 animate-pulse" />
                     <Loader2 className="w-12 h-12 text-blue-600 dark:text-blue-400 animate-spin relative z-10" />
                   </div>
-                  
-                  <div className="mt-6 text-center space-y-2">
-                        <p className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-                          {currentStatus || 'Processing Analysis...'}
+
+                  <div className="mt-6 w-full max-w-2xl space-y-4">
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+                        {currentStatus.stage || 'Processing Analysis...'}
+                      </p>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 font-medium">
+                        {currentStatus.progress}
+                      </p>
+                      {countdown > 0 && (
+                        <p className="text-xs text-slate-500 dark:text-slate-500 font-mono mt-2">
+                          Estimated step time: {countdown}s
                         </p>
-                        {countdown > 0 && (
-                          <p className="text-sm text-slate-500 dark:text-slate-400 font-mono">
-                            Estimated time: {countdown}s
-                          </p>
-                        )}
-                        <div className="flex flex-col items-center gap-4">
-                          <div className="flex items-center justify-center gap-2">
-                            <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.3s]" />
-                            <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.15s]" />
-                            <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-bounce" />
-                          </div>
-                          <button
-                            onClick={handleStop}
-                            className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-full text-xs font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 flex items-center gap-2"
-                          >
-                            <Zap className="w-3 h-3 fill-current" />
-                            STOP ANALYSIS
-                          </button>
-                        </div>
+                      )}
+                    </div>
+
+                    {/* Live Terminal Log View */}
+                    <div className="bg-slate-950 rounded-xl p-4 border border-slate-800 shadow-inner overflow-hidden flex flex-col items-start w-full min-h-[160px] text-left">
+                      <div className="flex items-center gap-2 mb-3 border-b border-slate-800 w-full pb-2">
+                        <Terminal size={14} className="text-emerald-500" />
+                        <span className="text-xs font-mono font-bold text-slate-400">LIVE FORENSIC LOG</span>
                       </div>
+                      <div className="flex-1 w-full overflow-y-auto space-y-1 max-h-[120px] scrollbar-thin scrollbar-thumb-slate-700">
+                        {currentStatus.messages?.map((msg, i) => (
+                          <div key={i} className="font-mono text-xs text-emerald-400/90 flex gap-2">
+                            <span className="text-slate-600 select-none">❯</span>
+                            <span className={i === currentStatus.messages.length - 1 ? "animate-pulse font-bold text-emerald-300" : ""}>{msg}</span>
+                          </div>
+                        ))}
+                        {currentStatus.total_chunks > 0 && currentStatus.current_chunk > 0 && (
+                          <div className="font-mono text-xs text-blue-400 mt-2">
+                            Processing chunk {currentStatus.current_chunk}/{currentStatus.total_chunks}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-center gap-4 pt-2">
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.3s]" />
+                        <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.15s]" />
+                        <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-bounce" />
+                      </div>
+                      <button
+                        onClick={handleStop}
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-full text-xs font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 flex items-center gap-2"
+                      >
+                        <Zap className="w-3 h-3 fill-current" />
+                        STOP ANALYSIS
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -475,10 +517,10 @@ function App() {
                   </div>
                   <div className="divide-y divide-slate-100 dark:divide-slate-800/50">
                     {result.related_kbs.map((kb, idx) => (
-                      <a 
-                        key={idx} 
-                        href={kb.url} 
-                        target="_blank" 
+                      <a
+                        key={idx}
+                        href={kb.url}
+                        target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center justify-between p-8 hover:bg-slate-50 dark:hover:bg-blue-500/5 transition-all group"
                       >
