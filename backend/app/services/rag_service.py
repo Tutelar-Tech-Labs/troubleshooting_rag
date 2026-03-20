@@ -143,16 +143,11 @@ class RAGService:
                     combined_context_parts.append(context_entry)
                     current_context_len += len(context_entry)
                 
-                import urllib.parse
-                
                 # Identify unique articles for the frontend
                 if chunk['article_title'] not in seen_urls:
-                    safe_title = urllib.parse.quote(chunk['article_title'])
-                    kb_link = "https://knowledgebase.paloaltonetworks.com/?q=" + safe_title
-                    
                     unique_articles.append({
                         "title": chunk['article_title'],
-                        "url": kb_link,
+                        "url": chunk['article_url'],
                         "content": chunk['chunk_text'][:200] + "..."
                     })
                     seen_urls.add(chunk['article_title'])
