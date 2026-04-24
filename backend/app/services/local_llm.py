@@ -80,9 +80,12 @@ class LocalLLMService(LLMBase):
         chunk_size_chars = 2500
 
         system_instruction = (
-            "Identify the SPECIFIC technical issue. "
-            "Avoid generic phrases like 'general connection failure'. "
-            "Mention exact cause such as enforcement blocking, authentication failure, certificate issue, or portal connectivity."
+            "You are analyzing GlobalProtect VPN logs. "
+            "Identify the SPECIFIC failure point using GP connection stages: "
+            "Portal Processing, Portal Login, Network Discover, Gateway Login, Tunnel Creation. "
+            "State which stage failed and the exact error from logs. "
+            "Do NOT guess — only report what the logs explicitly show. "
+            "If no clear GP stages are found, identify the most severe error or warning present."
         )
 
         import math
@@ -183,33 +186,57 @@ class LocalLLMService(LLMBase):
 
         return llm_issue
 
-    async def generate_troubleshooting_steps(self, issue: str, kb_context_text: str, on_status: Optional[Callable[[str], Awaitable[None]]] = None) -> str:
+    async def generate_troubleshooting_steps(self, issue: str, kb_context_text: str, stage_flow: str = "", failure_evidence: str = "", on_status: Optional[Callable[[str], Awaitable[None]]] = None) -> str:
         # 5) Limit KB Context
         kb_context_text = kb_context_text[:4000]
+        
+        # Build stage context for the prompt
+        stage_section = ""
+        if stage_flow:
+            stage_section = (
+                f"\n\nGlobalProtect Connection Stage Flow (from logs):\n{stage_flow}\n"
+            )
+        
+        evidence_section = ""
+        if failure_evidence:
+            evidence_section = (
+                f"\nLog Evidence (actual error lines from logs):\n{failure_evidence}\n"
+            )
+        
         prompt = (
-            "You are a Palo Alto GlobalProtect support engineer.\n\n"
-            "Issue:\n"
-            f"{issue}\n\n"
-            "Relevant Knowledge Base Information:\n"
-            f"{kb_context_text}\n\n"
-            "Provide a detailed response with these exact sections:\n\n"
-            "**1. Root Cause:**\n"
-            "(Provide a specific technical explanation based on the log and KB)\n\n"
-            "**2. Troubleshooting Steps:**\n"
-            "(Provide 3-5 clear, numbered, actionable steps)\n\n"
-            "**3. Summary:**\n"
-            "(One concise technical takeaway)\n\n"
-            "If KB content is generic, infer practical troubleshooting from experience. Use bold headers as shown above."
+            "You are a senior Palo Alto GlobalProtect log analyst.\n\n"
+            "STRICT RULES:\n"
+            "- ONLY use information present in the logs and evidence below\n"
+            "- Every root cause MUST be backed by a specific log line or stage result\n"
+            "- Do NOT mention certificate issues, DNS issues, or SAML issues unless explicitly shown in the evidence\n"
+            "- Do NOT hallucinate or guess — if logs don't show it, don't say it\n"
+            "- Explain step-by-step based on the stage flow sequence\n\n"
+            f"Issue:\n{issue}\n"
+            f"{stage_section}"
+            f"{evidence_section}\n"
+            f"Relevant Knowledge Base:\n{kb_context_text}\n\n"
+            "Provide your analysis with these exact sections:\n\n"
+            "**1. Stage Sequence Analysis:**\n"
+            "(Walk through the GP connection stages detected. For each stage, state success or failure. "
+            "Identify the exact stage where failure occurred.)\n\n"
+            "**2. Root Cause:**\n"
+            "(Based ONLY on the log evidence and failure stage, explain the technical root cause. "
+            "Cite specific log lines as evidence.)\n\n"
+            "**3. Troubleshooting Steps:**\n"
+            "(3-5 actionable steps specific to the failure stage and root cause)\n\n"
+            "**4. Summary:**\n"
+            "(One concise sentence: what failed, at which stage, and why)\n\n"
+            "Use bold headers as shown above."
         )
 
-        primary = await self._generate(prompt, self.primary_model, max_tokens=600, on_status=on_status)
+        primary = await self._generate(prompt, self.primary_model, max_tokens=700, on_status=on_status)
         if primary and len(primary.strip()) > 0:
             return primary
         
         msg = f"Retrying with {self.fallback_model}"
         print(f"[LLM ERROR] Timeout\n{msg}")
         if on_status: await on_status(msg)
-        fallback = await self._generate(prompt, self.fallback_model, max_tokens=600, on_status=on_status)
+        fallback = await self._generate(prompt, self.fallback_model, max_tokens=700, on_status=on_status)
         if fallback and len(fallback.strip()) > 0:
             return fallback
 
