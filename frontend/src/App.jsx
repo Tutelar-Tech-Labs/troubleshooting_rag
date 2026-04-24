@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Upload, FileText, CheckCircle, ExternalLink, AlertTriangle, Loader2, BookOpen, Info, Sun, Moon, Shield, Terminal, Zap } from 'lucide-react';
+import { Upload, FileText, CheckCircle, ExternalLink, AlertTriangle, Loader2, BookOpen, Info, Sun, Moon, Shield, Terminal, Zap, Clock } from 'lucide-react';
 
 const API_URL = 'http://localhost:8000/api';
 
@@ -14,6 +14,8 @@ function App() {
   const [countdown, setCountdown] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [fromTime, setFromTime] = useState('');
+  const [toTime, setToTime] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
   const abortControllerRef = useRef(null);
 
@@ -43,12 +45,26 @@ function App() {
       setDirectIssue('');
       setResult(null);
       setError(null);
+      setFromTime('');
+      setToTime('');
       setCurrentStatus({ stage: '', progress: '', messages: [] });
     }
   };
 
   const handlePaste = (e) => {
     if (activeTab === 'upload') {
+      // CRITICAL: Don't overwrite file if one is already selected
+      // This prevents pasting into time filter inputs from clearing the uploaded file
+      const target = e.target;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return; // Let native paste work in input fields
+      }
+
+      // If a file is already loaded, don't replace it with pasted text
+      if (file) {
+        return;
+      }
+
       const items = e.clipboardData.items;
       let foundFile = false;
 
@@ -110,6 +126,14 @@ function App() {
           const virtualFile = new File([blob], 'pasted_log.txt', { type: 'text/plain' });
           formData.append('file', virtualFile);
         }
+
+        if (fromTime) {
+          formData.append('start_time', fromTime);
+        }
+        if (toTime) {
+          formData.append('end_time', toTime);
+        }
+
         body = formData;
       } else {
         if (!directIssue.trim()) {
@@ -279,7 +303,7 @@ function App() {
                     type="file"
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     onChange={handleFileChange}
-                    accept=".log,.txt"
+                    accept=".log,.txt,.zip"
                   />
 
                   {file ? (
@@ -319,6 +343,47 @@ function App() {
                     />
                   </div>
                   <p className="text-[10px] text-slate-500 dark:text-slate-600 font-mono uppercase tracking-widest text-center">Neural bypassing log extraction: direct vector search enabled</p>
+                </div>
+              )}
+
+              {/* Time Filter Section */}
+              {activeTab === 'upload' && (file || pastedText) && (
+                <div className="mt-6 bg-slate-50 dark:bg-slate-950/50 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 space-y-4">
+                  <h3 className="text-sm font-black text-slate-600 dark:text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                    <Clock size={16} className="text-blue-500" />
+                    Time Filter (Optional)
+                  </h3>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                    FORMAT: MM/DD HH:MM:SS  (e.g. 08/20 15:30:45)
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">From</label>
+                      <input
+                        type="text"
+                        value={fromTime}
+                        onChange={(e) => setFromTime(e.target.value)}
+                        placeholder="08/20 10:00:00"
+                        className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono text-slate-700 dark:text-slate-300 placeholder:text-slate-300 dark:placeholder:text-slate-600 outline-none focus:border-blue-400 dark:focus:border-blue-500 transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">To</label>
+                      <input
+                        type="text"
+                        value={toTime}
+                        onChange={(e) => setToTime(e.target.value)}
+                        placeholder="08/20 18:00:00"
+                        className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono text-slate-700 dark:text-slate-300 placeholder:text-slate-300 dark:placeholder:text-slate-600 outline-none focus:border-blue-400 dark:focus:border-blue-500 transition-colors"
+                      />
+                    </div>
+                  </div>
+                  {fromTime && toTime && (
+                    <div className="flex items-center gap-2 text-xs text-blue-500 dark:text-blue-400 font-mono bg-blue-50 dark:bg-blue-500/10 px-3 py-2 rounded-lg border border-blue-100 dark:border-blue-500/20">
+                      <Clock size={12} />
+                      Analyzing logs between {fromTime} → {toTime}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -446,19 +511,125 @@ function App() {
 
             {result && (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-1000">
+                {result.status === 'resolved' && (
+                  <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-[2rem] p-10 shadow-lg">
+                    <div className="text-center mb-8">
+                      <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
+                      <h2 className="text-3xl font-black text-emerald-700 dark:text-emerald-400">Issue Detected & Resolved</h2>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="bg-white/60 dark:bg-slate-900/40 rounded-2xl p-5 border border-emerald-200/50 dark:border-emerald-500/10">
+                        <h4 className="text-xs font-black text-red-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                          <AlertTriangle size={14} />
+                          What Happened
+                        </h4>
+                        <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
+                          {result.detected_issue || 'Transient error detected in logs'}
+                        </p>
+                      </div>
+                      <div className="bg-white/60 dark:bg-slate-900/40 rounded-2xl p-5 border border-emerald-200/50 dark:border-emerald-500/10">
+                        <h4 className="text-xs font-black text-emerald-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                          <CheckCircle size={14} />
+                          How It Recovered
+                        </h4>
+                        <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
+                          {result.root_cause || 'System auto-recovered after transient failure'}
+                        </p>
+                      </div>
+                      <div className="bg-white/60 dark:bg-slate-900/40 rounded-2xl p-5 border border-amber-200/50 dark:border-amber-500/10">
+                        <h4 className="text-xs font-black text-amber-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                          <Info size={14} />
+                          Monitoring Needed
+                        </h4>
+                        <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
+                          Monitor logs for recurring patterns. If this issue repeats frequently, investigate the underlying cause.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Log Previews & Errors */}
+                {result.previous_errors && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                    {['pangps', 'pangpa', 'event'].map(logType => {
+                      const logErrors = result.previous_errors.filter(e => e.toLowerCase().includes(`[${logType}]`));
+                      if (!result.logs_used?.includes(logType) && logErrors.length === 0) return null;
+                      return (
+                        <div key={logType} className="bg-slate-900/90 backdrop-blur-xl rounded-2xl p-5 border border-slate-800 shadow-xl">
+                          <h4 className="text-blue-400 font-black uppercase mb-3 font-mono text-sm flex items-center gap-2">
+                            <FileText size={16} />
+                            {logType}.log Findings
+                          </h4>
+                          <div className="h-40 overflow-y-auto text-xs font-mono text-slate-300 space-y-2 scrollbar-thin scrollbar-thumb-slate-700">
+                            {logErrors.length > 0 ? (
+                              logErrors.map((e, i) => (
+                                <div key={i} className="flex gap-2 text-amber-500">
+                                  <span className="text-slate-600">⚠</span>
+                                  <span className="break-all">{e.replace(/^\[.*?\]\s*/, '')}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-slate-500 italic flex items-center gap-2 mt-4"><CheckCircle size={14} className="text-emerald-500" /> No severe errors detected for this log</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {result.status === 'not_relevant' && (
+                  <div className="bg-slate-800 dark:bg-slate-900/80 border border-slate-700/50 rounded-[2rem] p-10 text-center shadow-lg animate-pulse shadow-slate-900/50">
+                    <Shield className="w-20 h-20 text-slate-500 mx-auto mb-6" />
+                    <h2 className="text-3xl font-black text-slate-300 dark:text-slate-400 uppercase tracking-widest">⚠ Not a GlobalProtect Issue</h2>
+                    <p className="text-slate-400 dark:text-slate-500 mt-3 font-medium text-lg">Detected endpoint/application-level problem (e.g., Zoom/Teams). No VPN impact.</p>
+                  </div>
+                )}
+
                 {/* Detected Issue Card */}
                 <div className="bg-white dark:bg-slate-900/50 backdrop-blur-xl rounded-[2rem] shadow-xl border border-slate-200 dark:border-slate-800/50 overflow-hidden">
-                  <div className="bg-amber-500/10 dark:bg-amber-500/5 px-8 py-5 border-b border-amber-100 dark:border-amber-500/10 flex items-center gap-4">
-                    <div className="p-2 bg-amber-500/20 rounded-lg">
-                      <AlertTriangle className="text-amber-600 dark:text-amber-500" size={24} />
+                  <div className="bg-amber-500/10 dark:bg-amber-500/5 px-8 py-5 border-b border-amber-100 dark:border-amber-500/10 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="p-2 bg-amber-500/20 rounded-lg">
+                        <AlertTriangle className="text-amber-600 dark:text-amber-500" size={24} />
+                      </div>
+                      <h2 className="text-amber-900 dark:text-amber-500 font-black uppercase tracking-widest">Anomaly Detected</h2>
                     </div>
-                    <h2 className="text-amber-900 dark:text-amber-500 font-black uppercase tracking-widest">Anomaly Detected</h2>
+                    {result.status === 'resolved' && (
+                      <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-xs font-bold uppercase">Resolved State</span>
+                    )}
                   </div>
                   <div className="p-10">
                     <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-relaxed font-mono">
                       <span className="text-blue-500 mr-2 opacity-50">&gt;</span>
                       {result.detected_issue}
                     </p>
+                    {result.correlated_issue && result.correlated_issue !== result.detected_issue && (
+                      <p className="mt-4 text-sm text-slate-500 dark:text-slate-400 font-medium border-l-2 border-blue-500/30 pl-4 italic">
+                        Correlation: {result.correlated_issue}
+                      </p>
+                    )}
+                    <div className="mt-6 flex items-center gap-3 flex-wrap">
+                      {result.status && (
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${result.status === 'resolved' ? 'bg-emerald-500/20 text-emerald-400' :
+                          result.status === 'active' ? 'bg-red-500/20 text-red-400' :
+                            'bg-slate-500/20 text-slate-400'
+                          }`}>
+                          {result.status}
+                        </span>
+                      )}
+                      {result.confidence_score > 0 && (
+                        <span className="px-3 py-1 bg-blue-500/10 text-blue-400 rounded-full text-xs font-mono font-bold">
+                          Confidence: {(result.confidence_score * 100).toFixed(0)}%
+                        </span>
+                      )}
+                      {result.logs_used?.length > 0 && (
+                        <span className="px-3 py-1 bg-slate-500/10 text-slate-400 rounded-full text-xs font-mono">
+                          Logs: {result.logs_used.join(', ')}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
